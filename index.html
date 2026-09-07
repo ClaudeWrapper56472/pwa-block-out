@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover so the background reaches under the notch; the safe-area
+     insets in the stylesheet keep the controls out from under it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#161a21">
+<meta name="description" content="A sliding block puzzle. Send every block out through a gate of its own colour.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Clear Out">
+<title>Clear Out</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<main id="app">
+
+	<section id="menu-screen" class="screen menu">
+		<div class="menu-inner">
+			<svg class="mark" viewBox="0 0 120 120" role="img" aria-label="A puzzle board with blocks leaving through coloured gates">
+				<rect x="7" y="7" width="106" height="106" rx="20" fill="#191d25" stroke="#2c333f" stroke-width="12"/>
+				<rect x="40" y="1" width="30" height="12" rx="5" fill="#41ab63"/>
+				<rect x="107" y="30" width="12" height="26" rx="5" fill="#e8534b"/>
+				<rect x="26" y="32" width="46" height="22" rx="7" fill="#e8534b"/>
+				<path d="M60 37 L69 43 L60 49 Z" fill="#ffffff" opacity="0.9"/>
+				<rect x="42" y="62" width="26" height="42" rx="7" fill="#41ab63"/>
+				<path d="M55 68 L61 76 L49 76 Z" fill="#ffffff" opacity="0.9"/>
+				<rect x="76" y="62" width="26" height="26" rx="7" fill="#3f8ede"/>
+			</svg>
+			<h1>Clear Out</h1>
+			<p class="subtitle">Send every block out through a gate of its own colour.</p>
+			<button id="play-button" type="button" class="primary">Play level 1</button>
+			<button id="furthest-button" type="button" hidden>Back to level 1</button>
+			<p id="menu-progress" class="progress"></p>
+			<h2 class="section-title">Start at</h2>
+			<!-- Built from DIFFICULTIES in js/game/levels.js, so which level each one
+			     starts cannot drift from the level bank. -->
+			<div id="difficulty" class="difficulty" role="group" aria-label="Start at a difficulty"></div>
+			<h2 class="section-title">Levels</h2>
+			<div id="level-grid" class="level-grid"></div>
+		</div>
+	</section>
+
+	<section id="game-screen" class="screen game" hidden>
+
+		<header class="header-row">
+			<button id="back-button" type="button" class="ghost">Menu</button>
+			<span id="level-label" class="level-name"></span>
+		</header>
+
+		<!-- The board sizes itself to whatever is left between the header and the
+		     controls, so it stays whole on a short screen instead of scrolling. -->
+		<div id="board-area" class="board-area"></div>
+
+		<div class="bottom-bar">
+			<p class="progress">
+				<span id="progress-label"></span>
+				<span id="moves-label" class="moves"></span>
+			</p>
+			<p id="status-label" class="status" role="status" aria-live="polite"></p>
+			<div class="toolbar">
+				<button id="undo-button" type="button" disabled>Undo</button>
+				<button id="restart-button" type="button">Restart</button>
+			</div>
+		</div>
+
+		<div id="result-panel" class="overlay" hidden>
+			<div class="card">
+				<h2 id="result-title">Level cleared</h2>
+				<p id="result-detail"></p>
+				<button id="next-button" type="button" class="primary">Next level</button>
+				<button id="replay-button" type="button">Replay</button>
+				<button id="result-menu-button" type="button" class="ghost">Menu</button>
+			</div>
+		</div>
+
+	</section>
+
+</main>
+
+<script type="module" src="js/ui/main.js"></script>
+</body>
+</html>
