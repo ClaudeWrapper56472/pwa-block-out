@@ -1,10 +1,10 @@
 /*
  * Chrome, layout, and every board rule.
  *
- * A block's colour comes from the level, so it arrives as the --block custom
- * properties from js/ui/palette.js and the tile rules derive from those. The
- * gate colours are named here because the stylesheet is where a fixed palette
- * belongs, and script picks one by name.
+ * The colours are named here because the stylesheet is where a fixed palette
+ * belongs. A block's colour comes from the level rather than from a class, so
+ * js/ui/palette.js points --block at one of them per element; gates are picked
+ * by name the same way.
  *
  * Board metrics are all calc() off --step, the one number BoardView measures.
  */
@@ -116,8 +116,15 @@ button.ghost {
 	font-weight: 500;
 }
 
+/*
+ * Chrome only. A board block is a button for what it does -- one press, one move
+ * -- and not for how it looks, so the panel background and the press nudge have
+ * to be kept off it. Left in, the hover background paints over the block's whole
+ * bounding box, which on an L is the hollow as well, and the nudge fights the
+ * inline translate the slide is animating.
+ */
 @media (hover: hover) {
-	button:hover:not(:disabled) {
+	button:hover:not(:disabled, .block) {
 		background: var(--surface-lit);
 		border-color: #3f4a5c;
 	}
@@ -127,7 +134,7 @@ button.ghost {
 	}
 }
 
-button:active:not(:disabled) {
+button:active:not(:disabled, .block) {
 	translate: 0 1px;
 }
 
@@ -366,7 +373,15 @@ button:disabled {
 	z-index: 2;
 }
 
+/*
+ * The button is the block's bounding box, so for an L or a T it covers squares
+ * the block does not stand on. Only the tiles take the pointer, which leaves the
+ * hollow open: a block parked in it can be tapped, and passing over it is not
+ * hovering the L. The button still knows it is being hovered or pressed, because
+ * both states propagate up from the tile that took the pointer.
+ */
 .block {
+	pointer-events: none;
 	position: absolute;
 	left: calc(var(--col) * var(--step));
 	top: calc(var(--row) * var(--step));
@@ -382,7 +397,8 @@ button:disabled {
 	transition-duration: 0ms;
 }
 
-.block:disabled {
+/* A block that has left the board is still in the DOM until its exit finishes. */
+.block:disabled .tile {
 	pointer-events: none;
 }
 
@@ -394,19 +410,20 @@ button:disabled {
 /*
  * One element per cell. A side shared with another cell of the same block gets
  * no inset, so neighbouring tiles meet and the block reads as one piece.
+ *
+ * Flat colour, because the tile is the unit that gets painted but the block is
+ * what the eye reads. Any shading across a tile restarts at every cell, so a
+ * block shows a seam wherever two of its cells meet, and an L shows the ramp
+ * running two different ways either side of its corner.
  */
 .tile {
+	pointer-events: auto;
 	position: absolute;
 	left: calc(var(--c) * var(--step) + var(--pl));
 	top: calc(var(--r) * var(--step) + var(--pt));
 	width: calc(var(--step) - var(--pl) - var(--pr));
 	height: calc(var(--step) - var(--pt) - var(--pb));
-	background: linear-gradient(
-		160deg,
-		var(--block-lit) 0%,
-		var(--block) 46%,
-		var(--block-shade) 100%
-	);
+	background: var(--block);
 }
 
 .arrow {

@@ -47,13 +47,17 @@ Modules and the service worker need a real origin, so open it over HTTP rather
 than as a file:
 
 ```bash
-cd ~/Sites/pwa-block-out
+cd ~/Games/pwa-clear-out
 python3 -m http.server 8000
 # then http://localhost:8000
 ```
 
-Installing it from the browser's Add to Home Screen gives a standalone portrait
-app that plays offline.
+The service worker is not registered on `localhost`, and any copy left from an
+earlier visit is unregistered on load. It caches the whole app and then answers
+for it, so with it running a reload can be served the copy it already holds and
+an edit appears to do nothing; hard-reloading past that is browser-specific.
+Offline play therefore needs a real origin, where Add to Home Screen gives a
+standalone portrait app that plays with the network off.
 
 ```bash
 node tests/verify.mjs        # 103 assertions, a few seconds

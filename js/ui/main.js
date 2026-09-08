@@ -54,11 +54,45 @@ screen.on("exitRequested", showMenu);
 
 showMenu();
 
+/**
+ * Offline play, everywhere except here.
+ *
+ * The worker precaches the app and then answers for it, which is the same
+ * property seen from two sides: the game keeps working in a tunnel, and a local
+ * edit stays invisible because the reload is served the copy the worker already
+ * holds. Hard-reloading past it is browser-specific and easy to get wrong, so on
+ * localhost it is not registered at all.
+ *
+ * Anything left registered from an earlier visit is torn down rather than merely
+ * skipped, since a registration outlives the code that made it and would go on
+ * serving this origin on its own.
+ */
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
 if ("serviceWorker" in navigator) {
 	window.addEventListener("load", () => {
+		if (LOCAL_HOSTS.includes(location.hostname)) {
+			releaseWorker();
+			return;
+		}
 		navigator.serviceWorker.register("sw.js").catch((error) => {
 			// Offline play is the only casualty, and it is not worth a visible error.
 			console.warn("Service worker registration failed.", error);
 		});
 	});
+}
+
+async function releaseWorker() {
+	try {
+		const registrations = await navigator.serviceWorker.getRegistrations();
+		await Promise.all(registrations.map((registration) => registration.unregister()));
+		// The caches outlive the registration that filled them, so they go too.
+		const names = await caches.keys();
+		await Promise.all(names.map((name) => caches.delete(name)));
+		if (registrations.length > 0) {
+			console.info("Service worker unregistered for local development. Reload once more for a clean page.");
+		}
+	} catch (error) {
+		console.warn("Could not clear the service worker.", error);
+	}
 }
