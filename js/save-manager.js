@@ -1,14 +1,18 @@
 import { Emitter } from "./util/emitter.js";
+import * as Ladder from "./game/ladder.js";
 
 /**
  * The save document in localStorage: the level the player is on, the furthest
- * they have reached, their best move count per level, and the game they are in
- * the middle of.
+ * they have reached, and the game they are in the middle of.
  *
- * Two progress numbers, because the menu can send a player backwards. The
- * level being played moves both ways; the furthest reached only climbs, and is
- * what the level grid unlocks up to. The two agree until a difficulty button or
- * the grid drops the player onto an earlier level.
+ * Two progress numbers, because the menu can send a player backwards. The level
+ * being played moves both ways; the furthest reached only climbs. The two agree
+ * until a difficulty button drops the player onto an earlier level.
+ *
+ * Levels are generated, so the ladder has no end and nothing here is clamped to
+ * a level count. It also means a level number no longer identifies a board: the
+ * board in progress is kept in the session alongside the taps played on it,
+ * because next time it would be a different one.
  *
  * Writing is driven by an event. SaveManager announces that it is about to
  * write, whoever owns live state hands it over, and the write happens -- so
@@ -27,11 +31,19 @@ export class SaveManager extends Emitter {
 	 * build is discarded rather than guessed at, since fields we would silently
 	 * drop are worse than a fresh start.
 	 */
-	static VERSION = 1;
+	static VERSION = 2;
 
-	constructor(levelCount) {
+	/**
+	 * How many boards are remembered to avoid handing one out twice.
+	 *
+	 * Fingerprints, not boards. A few hundred hashes cost nothing and cover far
+	 * more levels than anyone plays in a sitting; forgetting the oldest costs at
+	 * worst one repeated board, long after it would be recognised.
+	 */
+	static SEEN_LIMIT = 400;
+
+	constructor() {
 		super();
-		this.levelCount = levelCount;
 		this._document = emptyDocument();
 		this._loaded = false;
 	}
@@ -46,7 +58,7 @@ export class SaveManager extends Emitter {
 			// it just cannot remember anything between visits.
 			parsed = null;
 		}
-		this._document = normalize(parsed, this.levelCount);
+		this._document = normalize(parsed);
 		this.emit("progressChanged");
 		this.emit("sessionAvailable", this.hasSession());
 	}
@@ -68,37 +80,41 @@ export class SaveManager extends Emitter {
 
 	/** The furthest level the player has reached. Levels are one-based. */
 	unlocked() {
-		return clamp(Number(this._document.progress.level ?? 1), 1, this.levelCount);
+		return atLeastFirst(this._document.progress.level);
 	}
 
 	/** The level the player is on: the one the play button starts. */
 	playing() {
-		return clamp(Number(this._document.progress.playing ?? 1), 1, this.levelCount);
+		return atLeastFirst(this._document.progress.playing);
 	}
 
-	levelsCompleted() {
-		return Object.keys(this._document.best).length;
+	levelsCleared() {
+		return Math.max(Number(this._document.cleared ?? 0), 0);
 	}
 
-	/** Fewest moves the player has cleared `number` in, or 0 if never cleared. */
-	bestFor(number) {
-		return Number(this._document.best[String(number)] ?? 0);
+	/** Fingerprints of boards already handed out, so one is not served twice. */
+	seen() {
+		return this._document.seen ?? [];
 	}
 
-	/** Records a win and moves the player on to the next level. Returns the best move count. */
-	recordWin(number, moves) {
-		const key = String(number);
-		const previous = Number(this._document.best[key] ?? 0);
-		const best = previous === 0 ? moves : Math.min(previous, moves);
-		this._document.best[key] = best;
-		const next = clamp(number + 1, 1, this.levelCount);
+	recordSeen(fingerprint) {
+		const value = Number(fingerprint);
+		if (!Number.isFinite(value)) return;
+		const seen = this._document.seen.filter((entry) => entry !== value);
+		seen.push(value);
+		this._document.seen = seen.slice(-SaveManager.SEEN_LIMIT);
+	}
+
+	/** Records a win and moves the player on to the next level. */
+	recordWin(number) {
+		this._document.cleared += 1;
+		const next = atLeastFirst(number) + 1;
 		this._document.progress.playing = next;
 		this._document.progress.level = Math.max(this.unlocked(), next);
 		this._document.session = {};
 		this._write();
 		this.emit("progressChanged");
 		this.emit("sessionAvailable", false);
-		return best;
 	}
 
 	hasSession() {
@@ -115,16 +131,16 @@ export class SaveManager extends Emitter {
 	}
 
 	/**
-	 * Records a level being opened. Opening one is what moves the player to it,
-	 * so it becomes the level they are on, and the furthest reached when it is
-	 * past that. The session is noted too, so a tab discarded on move one still
-	 * resumes.
+	 * Records a level being opened. Opening one is what moves the player to it, so
+	 * it becomes the level they are on, and the furthest reached when it is past
+	 * that. The board is noted with it, so a tab discarded on move one comes back
+	 * to the same puzzle rather than a fresh one.
 	 */
-	recordStarted(number) {
-		const level = clamp(number, 1, this.levelCount);
+	recordStarted(number, spec) {
+		const level = atLeastFirst(number);
 		this._document.progress.playing = level;
 		this._document.progress.level = Math.max(this.unlocked(), level);
-		this._document.session = { level, taps: [] };
+		this._document.session = { level, spec, taps: [] };
 		this._write();
 		this.emit("progressChanged");
 		this.emit("sessionAvailable", true);
@@ -149,42 +165,37 @@ export class SaveManager extends Emitter {
 }
 
 /** Coerces whatever was in storage into a document this build can use. */
-export function normalize(data, levelCount) {
+export function normalize(data) {
 	const document = emptyDocument();
 	if (!isObject(data)) return document;
 	if (Number(data.version ?? 0) !== SaveManager.VERSION) return document;
 
-	const level = Number(data.progress?.level ?? 1);
-	// A document from before the level being played was recorded is on its furthest.
-	const playing = Number(data.progress?.playing ?? level);
-	document.progress.playing = clamp(Number.isFinite(playing) ? playing : 1, 1, levelCount);
+	document.progress.playing = atLeastFirst(data.progress?.playing);
 	// The furthest level is never behind the one being played, whatever a
 	// hand-edited document says.
-	document.progress.level = Math.max(
-		clamp(Number.isFinite(level) ? level : 1, 1, levelCount),
-		document.progress.playing,
-	);
+	document.progress.level = Math.max(atLeastFirst(data.progress?.level), document.progress.playing);
 
-	if (isObject(data.best)) {
-		for (const [key, value] of Object.entries(data.best)) {
-			const number = Number(key);
-			const moves = Number(value);
-			if (!Number.isInteger(number) || number < 1 || number > levelCount) continue;
-			if (!Number.isInteger(moves) || moves < 1) continue;
-			document.best[String(number)] = moves;
-		}
+	const cleared = Number(data.cleared ?? 0);
+	document.cleared = Number.isInteger(cleared) && cleared > 0 ? cleared : 0;
+
+	if (Array.isArray(data.seen)) {
+		document.seen = data.seen
+			.map(Number)
+			.filter((entry) => Number.isFinite(entry))
+			.slice(-SaveManager.SEEN_LIMIT);
 	}
 
-	// The session is a list of taps to replay, so a single bad entry would shift
-	// every move after it. One junk entry drops the whole session rather than
-	// replaying a game the player never played.
+	// The session is a board plus a list of taps to replay onto it, so a single
+	// bad entry would shift every move after it. One junk entry drops the whole
+	// session rather than replaying a game the player never played.
 	const session = data.session;
-	if (isObject(session) && Array.isArray(session.taps)) {
+	if (isObject(session) && Array.isArray(session.taps) && isSpec(session.spec)) {
 		const number = Number(session.level ?? 0);
-		const taps = session.taps;
-		const usable = Number.isInteger(number) && number >= 1 && number <= levelCount
-			&& taps.every((tap) => Number.isInteger(tap) && tap >= 0);
-		if (usable) document.session = { level: number, taps: [...taps] };
+		const usable = Number.isInteger(number) && number >= Ladder.FIRST_LEVEL
+			&& session.taps.every((tap) => Number.isInteger(tap) && tap >= 0);
+		if (usable) {
+			document.session = { level: number, spec: session.spec, taps: [...session.taps] };
+		}
 	}
 	return document;
 }
@@ -192,14 +203,21 @@ export function normalize(data, levelCount) {
 export function emptyDocument() {
 	return {
 		version: SaveManager.VERSION,
-		progress: { level: 1, playing: 1 },
-		best: {},
+		progress: { level: Ladder.FIRST_LEVEL, playing: Ladder.FIRST_LEVEL },
+		cleared: 0,
+		seen: [],
 		session: {},
 	};
 }
 
-function clamp(value, low, high) {
-	return Math.min(Math.max(Math.round(value), low), high);
+/** Enough of a level spec to be worth handing to the parser, which checks the rest. */
+function isSpec(spec) {
+	return isObject(spec) && Array.isArray(spec.art) && isObject(spec.blocks);
+}
+
+function atLeastFirst(value) {
+	const number = Math.round(Number(value));
+	return Number.isFinite(number) ? Math.max(number, Ladder.FIRST_LEVEL) : Ladder.FIRST_LEVEL;
 }
 
 function isObject(value) {

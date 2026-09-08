@@ -1,4 +1,4 @@
-import { LEVELS } from "../game/game-state.js";
+import * as Ladder from "../game/ladder.js";
 import { BoardView } from "./board-view.js";
 import { Emitter } from "../util/emitter.js";
 
@@ -10,6 +10,8 @@ import { Emitter } from "../util/emitter.js";
  * translating: a tap on the board becomes a GameState call, a GameState event
  * becomes a label. Nothing here holds game state, so the screen can be left and
  * reopened mid-level without losing anything.
+ *
+ * The ladder has no last level, so there is always a next one to offer.
  *
  * Emits: exitRequested()
  */
@@ -28,6 +30,8 @@ export class GameScreen extends Emitter {
 		this._undoButton = root.querySelector("#undo-button");
 		this._restartButton = root.querySelector("#restart-button");
 		this._backButton = root.querySelector("#back-button");
+		this._findingPanel = root.querySelector("#finding-panel");
+		this._findingDetail = root.querySelector("#finding-detail");
 		this._resultPanel = root.querySelector("#result-panel");
 		this._resultTitle = root.querySelector("#result-title");
 		this._resultDetail = root.querySelector("#result-detail");
@@ -51,13 +55,25 @@ export class GameScreen extends Emitter {
 		this._wireGame();
 		this._installKeyboard();
 		this._resultPanel.hidden = true;
+		this._findingPanel.hidden = true;
 	}
 
 	_wireGame() {
 		const game = this.game;
+		game.on("generationStarted", (number) => {
+			this._resultPanel.hidden = true;
+			this._levelLabel.textContent = Ladder.describe(number);
+			this._findingDetail.textContent = `A board that takes ${Ladder.specFor(number).minPar} taps or more.`;
+			this._findingPanel.hidden = false;
+		});
+		game.on("generationFinished", (ok) => {
+			this._findingPanel.hidden = ok;
+			if (!ok) this._findingDetail.textContent = "Could not draw one. Go back and try again.";
+		});
 		game.on("levelLoaded", (level) => {
 			this._resultPanel.hidden = true;
-			this._levelLabel.textContent = `${level.number}. ${level.name}`;
+			this._findingPanel.hidden = true;
+			this._levelLabel.textContent = Ladder.describe(level.number);
 			this._statusLabel.textContent = level.number === 1
 				? "Tap a block to send it the way its arrow points."
 				: "";
@@ -74,20 +90,19 @@ export class GameScreen extends Emitter {
 			if (stuck) this._showStatus("No way out from here — undo or restart.", true);
 			else this._showStatus("");
 		});
-		game.on("levelCompleted", (number, moves, par, best) => this._showResult(number, moves, par, best));
+		game.on("levelCompleted", (number, moves, par) => this._showResult(number, moves, par));
 	}
 
-	_showResult(number, moves, par, best) {
-		const last = number >= LEVELS.length;
-		this._resultTitle.textContent = last ? "That was the last one" : "Level cleared";
+	_showResult(number, moves, par) {
+		this._resultTitle.textContent = "Level cleared";
 		const parts = [`${moves} move${moves === 1 ? "" : "s"}`, `par ${par}`];
-		if (moves > par) parts.push(`best ${best}`);
-		else parts.push("perfect");
+		// Par is the shortest solution the search could find, so matching it is
+		// the best the board allows and there is nothing better to compare against.
+		if (moves === par) parts.push("perfect");
 		this._resultDetail.textContent = parts.join("  ·  ");
-		this._nextButton.hidden = last;
 		this._nextButton.textContent = `Level ${number + 1}`;
 		this._resultPanel.hidden = false;
-		(last ? this._resultMenuButton : this._nextButton).focus();
+		this._nextButton.focus();
 	}
 
 	/**

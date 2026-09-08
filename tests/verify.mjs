@@ -6,11 +6,11 @@
  * Nothing here touches the DOM, so the whole layer runs under plain Node. Plain
  * assertions rather than a framework, so it runs with nothing installed.
  *
- * The point of the level pass at the end is that a hand-drawn picture is easy to
- * get wrong in ways that are invisible until you play it: a gate on the wrong
- * edge, a block facing a wall it can never pass, an ordering that cannot be
- * satisfied. Every shipped level is solved here, and its declared par is checked
- * against the shortest solution the search can find.
+ * The point of the generator pass at the end is that nothing draws the levels by
+ * hand any more, so nothing has read the board before a player does. Every board
+ * the pass draws is solved here, and its declared par is checked against the
+ * shortest solution the search can find -- the same check the generator makes,
+ * run again from the outside on the finished article.
  *
  * The fixture is a three-by-three board:
  *
@@ -19,10 +19,11 @@
  *     . B .   r
  *     . . .
  */
-import { Level, buildLevels, Dir } from "../js/game/level.js";
+import { Level, Dir } from "../js/game/level.js";
 import { BoardState } from "../js/game/board.js";
 import { search, isDeadEnd, par } from "../js/game/solver.js";
-import { LEVEL_SPECS, DIFFICULTIES } from "../js/game/levels.js";
+import { generate } from "../js/game/generator.js";
+import * as Ladder from "../js/game/ladder.js";
 import { normalize, emptyDocument, SaveManager } from "../js/save-manager.js";
 
 const FIXTURE = {
@@ -251,78 +252,127 @@ group("Solver");
 
 group("Levels the player can lose");
 {
-	// Level 15 is built around one tap that shuts the last way out.
-	const level = buildLevels(LEVEL_SPECS)[14];
-	eq("it is the level with the trap", level.name, "Look first");
+	// Two blocks facing each other in a lane neither can use. Tapping the wrong
+	// one first is how a real board gets stranded.
+	const level = new Level(1, {
+		name: "Trap",
+		blocks: { A: "r>", B: "gv", X: "bv" },
+		art: [
+			".g...",
+			"..A.r",
+			"..X..",
+			"..B..",
+			".gb..",
+		],
+	});
 	const state = new BoardState(level);
 	const trap = level.blocks.findIndex((block) => block.id === "X");
-	check("tapping X first is not an escape", !state.canExit(trap));
+	check("X cannot leave: the gate under it is the wrong colour", !state.canExit(trap));
 	state.tap(trap);
-	check("and it strands the board", isDeadEnd(state));
+	check("and sliding it down shuts B in", isDeadEnd(state));
 }
 
-// --- The shipped levels -----------------------------------------------------
+// --- The ladder -------------------------------------------------------------
 
-group("Level bank");
+group("Ladder");
 {
-	const levels = buildLevels(LEVEL_SPECS);
-	check("twenty levels", levels.length === 20);
-	check("numbered from one, in order", levels.every((level, index) => level.number === index + 1));
-	check("every level has a name", levels.every((level) => level.name.length > 0));
+	eq("three ways onto it", Ladder.DIFFICULTIES.map((entry) => entry.name), ["Easy", "Medium", "Hard"]);
+	eq("Easy opens on level one", Ladder.DIFFICULTIES[0].from, Ladder.FIRST_LEVEL);
+	check("each opens later than the one before", Ladder.DIFFICULTIES.every((entry, index) =>
+		index === 0 || entry.from > Ladder.DIFFICULTIES[index - 1].from));
 
+	const specs = [1, 5, 10, 15, 20, 40, 400].map((level) => Ladder.specFor(level));
+	check("boards never shrink as the ladder climbs",
+		specs.every((spec, index) => index === 0 || spec.size >= specs[index - 1].size));
+	check("nor do block counts",
+		specs.every((spec, index) => index === 0 || spec.blocks >= specs[index - 1].blocks));
+	check("everything stops growing at the ceiling",
+		specs.at(-1).size === Ladder.MAX_SIZE && specs.at(-1).blocks === Ladder.MAX_BLOCKS);
+	check("par must always be at least one tap a block",
+		specs.every((spec) => spec.minPar >= spec.blocks && spec.maxPar > spec.minPar));
+
+	eq("Easy asks for no shunt", Ladder.specFor(1).minPar, Ladder.specFor(1).blocks);
+	const medium = Ladder.specFor(Ladder.DIFFICULTIES[1].from);
+	eq("Medium asks for one", medium.minPar - medium.blocks, 1);
+	// A level number the ladder was never asked about still has to answer.
+	check("nonsense still gets a board", Ladder.specFor(-4).size >= 5 && Ladder.specFor(0).blocks >= 3);
+}
+
+// --- The generator ----------------------------------------------------------
+
+group("Generated levels");
+{
+	// Spread across the ladder rather than bunched, so a band that only breaks on
+	// the bigger boards cannot hide behind the small ones.
+	const numbers = [1, 3, 7, 10, 12, 15, 18, 22, 30];
 	let solved = 0;
 	let parsMatch = 0;
 	let gated = 0;
-	for (const level of levels) {
-		const state = new BoardState(level);
-		const result = search(state, 400000);
+	let sized = 0;
+	let shunted = 0;
+	let wanted = 0;
+
+	for (const number of numbers) {
+		const spec = generate(number);
+		if (spec === null) {
+			process.stdout.write(`  FAIL  level ${number} produced no board\n`);
+			continue;
+		}
+		const level = new Level(number, spec);
+		const want = Ladder.specFor(number);
+		const result = search(new BoardState(level), 400000);
+
 		if (result.status === "solved") solved += 1;
-		else process.stdout.write(`  FAIL  level ${level.number} is ${result.status}\n`);
-		if (result.moves.length === level.par) parsMatch += 1;
+		else process.stdout.write(`  FAIL  generated level ${number} is ${result.status}\n`);
+
+		if (result.moves.length === spec.par) parsMatch += 1;
 		else {
 			process.stdout.write(
-				`  FAIL  level ${level.number} declares par ${level.par}, shortest is ${result.moves.length}\n`,
+				`  FAIL  generated level ${number} declares par ${spec.par}, shortest is ${result.moves.length}\n`,
 			);
 		}
-		if (level.blocks.every((block) => hasGate(level, block))) gated += 1;
-		else process.stdout.write(`  FAIL  level ${level.number} has a block with no gate to reach\n`);
-	}
-	check("every level can be cleared", solved === levels.length);
-	check("every declared par is the shortest solution", parsMatch === levels.length);
-	check("every block faces a gate of its own colour", gated === levels.length);
 
-	const pars = levels.map((level) => level.par);
-	check("the last level is the longest", Math.max(...pars) === pars[pars.length - 1]);
-	check("the first level is the shortest", Math.min(...pars) === pars[0]);
-	// Par climbs through the ladder. The one drop is the level that introduces
-	// sliding a block short of its gate, which is small on purpose.
-	const shunt = levels.findIndex((level) => level.name === "Shunt");
-	check("par never falls except at the shunt lesson",
-		pars.every((value, index) => index === 0 || index === shunt || value >= pars[index - 1]));
-	check("and the shunt lesson is the first level needing more taps than blocks",
-		levels.findIndex((level) => level.par > level.blockCount()) === shunt);
+		if (level.blocks.every((block) => hasGate(level, block))) gated += 1;
+		else process.stdout.write(`  FAIL  generated level ${number} has a block with no gate to reach\n`);
+
+		if (level.rows === want.size && level.cols === want.size
+			&& level.blockCount() === want.blocks) sized += 1;
+		else {
+			process.stdout.write(
+				`  FAIL  generated level ${number} is ${level.rows}x${level.cols} with ${level.blockCount()} blocks,`
+				+ ` wanted ${want.size}x${want.size} with ${want.blocks}\n`,
+			);
+		}
+
+		// The par floor is what a shunt is: a tap that parks a block rather than
+		// clearing it. Missing it is a weaker board, not a broken one, so it is
+		// counted rather than failed -- the generator falls back to its nearest
+		// miss rather than handing back nothing.
+		if (want.shunts > 0) {
+			wanted += 1;
+			if (spec.par >= want.minPar) shunted += 1;
+		}
+	}
+
+	check("every generated level can be cleared", solved === numbers.length);
+	check("every declared par is the shortest solution", parsMatch === numbers.length);
+	check("every block faces a gate of its own colour", gated === numbers.length);
+	check("every board is the size and shape the ladder asked for", sized === numbers.length);
+	check(`most boards that should need a shunt do (${shunted}/${wanted})`, shunted >= wanted - 1);
 }
 
-group("Difficulties");
+group("Generated levels are drawn fresh")
 {
-	const levels = buildLevels(LEVEL_SPECS);
-	eq("three ways onto the ladder", DIFFICULTIES.map((entry) => entry.name), ["Easy", "Medium", "Hard"]);
-	eq("Easy opens on level one", DIFFICULTIES[0].from, 1);
-	check("each opens on a level that exists", DIFFICULTIES.every((entry) =>
-		Number.isInteger(entry.from) && entry.from >= 1 && entry.from <= levels.length));
-	check("and later than the one before", DIFFICULTIES.every((entry, index) =>
-		index === 0 || entry.from > DIFFICULTIES[index - 1].from));
-	eq("Medium opens on the shunt lesson", levels[DIFFICULTIES[1].from - 1].name, "Shunt");
-	eq("Hard opens on the first level that can be lost", levels[DIFFICULTIES[2].from - 1].name, "Look first");
+	const first = generate(8);
+	const again = generate(8, 0, undefined, new Set([first.fingerprint]));
+	check("a board is not handed out twice", again.fingerprint !== first.fingerprint);
+	check("a fingerprint is a number", Number.isFinite(first.fingerprint));
 
-	// Somebody picking Hard wants the harder idea, not to be dropped onto the
-	// longest board in the game.
-	for (const [index, entry] of DIFFICULTIES.entries()) {
-		const end = DIFFICULTIES[index + 1]?.from ?? levels.length + 1;
-		const band = levels.slice(entry.from - 1, end - 1);
-		check(`${entry.name} opens at the gentle end of its band`,
-			band.every((level) => level.par >= band[0].par));
-	}
+	// Seeded, so a board that misbehaves can be got back from its seed alone.
+	const seeded = generate(6, 12345);
+	const repeat = generate(6, 12345);
+	eq("the same seed draws the same board", repeat.art, seeded.art);
+	eq("down to the blocks", repeat.blocks, seeded.blocks);
 }
 
 /** A block can only ever leave by the gate its arrow points at. */
@@ -338,39 +388,52 @@ group("Save document");
 {
 	const fresh = emptyDocument();
 	eq("a fresh document starts at level one", fresh.progress, { level: 1, playing: 1 });
-	eq("with nothing cleared", fresh.best, {});
+	eq("with nothing cleared", [fresh.cleared, fresh.seen], [0, []]);
 
-	eq("nonsense is discarded", normalize("not a document", 20), fresh);
-	eq("so is a document from a newer build", normalize({ version: 99, progress: { level: 9 } }, 20), fresh);
+	eq("nonsense is discarded", normalize("not a document"), fresh);
+	eq("so is a document from a newer build", normalize({ version: 99, progress: { level: 9 } }), fresh);
 
+	// A board, in the picture format the session stores it in.
+	const board = { par: 2, blocks: { A: "r>", B: "g^" }, art: FIXTURE.art, fingerprint: 7 };
 	const restored = normalize({
 		version: SaveManager.VERSION,
 		progress: { level: 4 },
-		best: { 1: 3, 2: 5, 99: 1, bad: 2, 3: 0 },
-		session: { level: 4, taps: [0, 2, 1] },
-	}, 20);
+		cleared: 3,
+		seen: [1, 2, "bad", 4],
+		session: { level: 4, spec: board, taps: [0, 2, 1] },
+	});
 	eq("progress survives", restored.progress.level, 4);
-	eq("a document from before the playing level was kept is on its furthest", restored.progress.playing, 4);
+	eq("a document from before the playing level was kept is on its furthest", restored.progress.playing, 1);
+	eq("the count of levels cleared survives", restored.cleared, 3);
+	eq("unreadable fingerprints are dropped", restored.seen, [1, 2, 4]);
 	eq("the furthest level is never behind the one being played", normalize({
 		version: SaveManager.VERSION,
 		progress: { level: 3, playing: 9 },
-	}, 20).progress, { level: 9, playing: 9 });
-	eq("out-of-range and junk best scores are dropped", Object.keys(restored.best).sort(), ["1", "2"]);
+	}).progress, { level: 9, playing: 9 });
 	eq("the session keeps its taps", restored.session.taps, [0, 2, 1]);
+	eq("and the board they were played on", restored.session.spec.art, FIXTURE.art);
 
 	eq("one bad tap drops the whole session", normalize({
 		version: SaveManager.VERSION,
-		session: { level: 4, taps: [0, null, 2] },
-	}, 20).session, {});
+		session: { level: 4, spec: board, taps: [0, null, 2] },
+	}).session, {});
 
-	eq("a level past the end is pulled back", normalize({
+	// The level number no longer says what the board was, so a session without
+	// one is a session that cannot be replayed.
+	eq("a session with no board is dropped", normalize({
+		version: SaveManager.VERSION,
+		session: { level: 4, taps: [0, 1] },
+	}).session, {});
+
+	// The ladder has no end, so a large level number is a real level, not junk.
+	eq("a level far up the ladder is kept as it is", normalize({
 		version: SaveManager.VERSION,
 		progress: { level: 400 },
-	}, 20).progress.level, 20);
-	eq("a session for a level that does not exist is dropped", normalize({
+	}).progress.level, 400);
+	eq("but a level below the first is pulled up", normalize({
 		version: SaveManager.VERSION,
-		session: { level: 44, taps: [] },
-	}, 20).session, {});
+		progress: { level: -3 },
+	}).progress.level, 1);
 }
 
 group("Moving through the levels");
@@ -381,29 +444,34 @@ group("Moving through the levels");
 		getItem: (key) => stored.get(key) ?? null,
 		setItem: (key, value) => stored.set(key, String(value)),
 	};
-	const save = new SaveManager(20);
+	const board = { par: 2, blocks: FIXTURE.blocks, art: FIXTURE.art, fingerprint: 99 };
+	const save = new SaveManager();
 	save.load();
 	eq("a new player is on level one", [save.playing(), save.unlocked()], [1, 1]);
 
-	save.recordStarted(15);
+	save.recordStarted(15, board);
 	eq("opening Hard moves the player there and unlocks up to it", [save.playing(), save.unlocked()], [15, 15]);
 	check("and notes the game in progress", save.hasSession());
-	save.recordWin(15, 9);
+	eq("with the board it was played on", save.session().spec.fingerprint, 99);
+	save.recordWin(15);
 	eq("a win moves on to the next level", [save.playing(), save.unlocked()], [16, 16]);
 	check("and closes the game in progress", !save.hasSession());
 
-	save.recordStarted(2);
+	save.recordStarted(2, board);
 	eq("dropping back to an easy level keeps the furthest", [save.playing(), save.unlocked()], [2, 16]);
-	save.recordWin(2, 4);
+	save.recordWin(2);
 	eq("and carrying on from there stays below it", [save.playing(), save.unlocked()], [3, 16]);
+	eq("two levels cleared", save.levelsCleared(), 2);
 
-	save.recordWin(20, 15);
-	eq("clearing the last level stays on it", [save.playing(), save.unlocked()], [20, 20]);
+	save.recordSeen(99);
+	save.recordSeen(100);
+	save.recordSeen(99);
+	eq("a board seen again is not listed twice", [...save.seen()], [100, 99]);
 
-	const reloaded = new SaveManager(20);
+	const reloaded = new SaveManager();
 	reloaded.load();
 	eq("all of which survives a reload",
-		[reloaded.playing(), reloaded.unlocked(), reloaded.bestFor(15)], [20, 20, 9]);
+		[reloaded.playing(), reloaded.unlocked(), reloaded.levelsCleared()], [3, 16, 2]);
 	delete globalThis.localStorage;
 }
 

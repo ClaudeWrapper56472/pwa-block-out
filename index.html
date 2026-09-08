@@ -38,11 +38,9 @@
 			<button id="furthest-button" type="button" hidden>Back to level 1</button>
 			<p id="menu-progress" class="progress"></p>
 			<h2 class="section-title">Start at</h2>
-			<!-- Built from DIFFICULTIES in js/game/levels.js, so which level each one
-			     starts cannot drift from the level bank. -->
+			<!-- Built from DIFFICULTIES in js/game/ladder.js, so which level each one
+			     starts cannot drift from the ladder itself. -->
 			<div id="difficulty" class="difficulty" role="group" aria-label="Start at a difficulty"></div>
-			<h2 class="section-title">Levels</h2>
-			<div id="level-grid" class="level-grid"></div>
 		</div>
 	</section>
 
@@ -66,6 +64,15 @@
 			<div class="toolbar">
 				<button id="undo-button" type="button" disabled>Undo</button>
 				<button id="restart-button" type="button">Restart</button>
+			</div>
+		</div>
+
+		<!-- Levels are found rather than shipped, so opening one can take a moment.
+		     Usually it is already waiting, built while the last level was played. -->
+		<div id="finding-panel" class="overlay" hidden>
+			<div class="card">
+				<h2 id="finding-title">Finding a level</h2>
+				<p id="finding-detail" class="progress"></p>
 			</div>
 		</div>
 

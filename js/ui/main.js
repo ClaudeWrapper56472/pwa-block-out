@@ -1,5 +1,5 @@
 import { SaveManager } from "../save-manager.js";
-import { GameState, LEVELS } from "../game/game-state.js";
+import { GameState } from "../game/game-state.js";
 import { MenuScreen } from "./menu-screen.js";
 import { GameScreen } from "./game-screen.js";
 
@@ -7,11 +7,11 @@ import { GameScreen } from "./game-screen.js";
  * Boot and screen router.
  *
  * Both screens exist from the start and are shown or hidden rather than built
- * and thrown away. There are two of them, they are cheap, and keeping them
- * alive means the board does not rebuild every time the player checks the menu.
+ * and thrown away. There are two of them, they are cheap, and keeping them alive
+ * means the board does not rebuild every time the player checks the menu.
  */
 
-const save = new SaveManager(LEVELS.length);
+const save = new SaveManager();
 save.load();
 save.installSuspendHooks();
 
@@ -27,6 +27,9 @@ function showMenu() {
 	menuRoot.hidden = false;
 	gameRoot.hidden = true;
 	menu.refresh();
+	// Sitting on the menu is a good moment to find the next board, so pressing
+	// play does not start with a wait.
+	game.prefetchUpcoming();
 }
 
 function showGame() {
@@ -40,8 +43,8 @@ menu.on("playRequested", () => {
 	if (!game.resume()) game.startLevel(save.playing());
 });
 
-// The level grid, the difficulty buttons and the way back to the furthest level
-// all name a level to start. Opening it takes over the session.
+// The difficulty buttons and the way back to the furthest level both name a
+// level to start. Opening it takes over the session.
 menu.on("levelRequested", (number) => {
 	showGame();
 	game.startLevel(number);

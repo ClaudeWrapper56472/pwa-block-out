@@ -1,9 +1,13 @@
 /**
  * Offline play.
  *
- * Everything the game needs is static and small -- the levels are code, not a
- * download -- so the whole app is precached on install. A puzzle you can already
- * play should not stop working because the train went into a tunnel.
+ * Everything the game needs is static and small -- levels are drawn on the
+ * device, not fetched -- so the whole app is precached on install. A game that
+ * makes its own puzzles should not stop making them because the train went into
+ * a tunnel.
+ *
+ * The generator and the worker that runs it are in the list for that reason: a
+ * build without them offline is a build with nothing to play.
  *
  * Two strategies, split by what goes wrong when a file is stale.
  *
@@ -29,11 +33,14 @@ const ASSETS = [
 	"icons/icon-192.png",
 	"icons/icon-512.png",
 	"icons/icon-1024.png",
+	"js/builder.js",
 	"js/save-manager.js",
+	"js/worker.js",
 	"js/game/board.js",
 	"js/game/game-state.js",
+	"js/game/generator.js",
+	"js/game/ladder.js",
 	"js/game/level.js",
-	"js/game/levels.js",
 	"js/game/solver.js",
 	"js/ui/board-view.js",
 	"js/ui/game-screen.js",
@@ -41,6 +48,7 @@ const ASSETS = [
 	"js/ui/menu-screen.js",
 	"js/ui/palette.js",
 	"js/util/emitter.js",
+	"js/util/rng.js",
 ];
 
 self.addEventListener("install", (event) => {

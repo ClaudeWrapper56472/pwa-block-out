@@ -152,10 +152,6 @@ export class Level {
 	}
 }
 
-export function buildLevels(specs) {
-	return specs.map((spec, index) => new Level(index + 1, spec));
-}
-
 function readArt(art, number) {
 	if (!Array.isArray(art) || art.length < 3) {
 		throw new Error(`Level ${number}: the picture needs a frame and at least one row.`);

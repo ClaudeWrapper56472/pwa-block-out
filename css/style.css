@@ -185,32 +185,6 @@ button:disabled {
 	text-transform: uppercase;
 }
 
-.level-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(2.75rem, 1fr));
-	gap: 0.4rem;
-}
-
-.level-chip {
-	min-height: 2.75rem;
-	padding: 0;
-	font-variant-numeric: tabular-nums;
-}
-
-.level-chip.is-done {
-	border-color: var(--colour-green);
-	color: var(--colour-green);
-}
-
-.level-chip.is-next {
-	border-color: var(--ink);
-}
-
-.level-chip:disabled {
-	border-color: #262d39;
-	background: #1a1f28;
-}
-
 /* Three ways onto the ladder, three across a phone. */
 .difficulty {
 	display: grid;
@@ -227,23 +201,11 @@ button:disabled {
 	padding: 0.5rem 0.375rem;
 }
 
-/*
- * Two lines under the name rather than one wrapping line: at three buttons to a
- * phone's width, "Level 15 · Look first" breaks wherever it likes. Both inherit
- * their colour, so they follow the button through hover and press.
- */
+/* Inherits its colour, so it follows the button through hover and press. */
 .difficulty .level {
 	font-size: 0.8em;
 	line-height: 1.2;
 	opacity: 0.85;
-}
-
-.difficulty .name {
-	font-size: 0.7em;
-	font-weight: 500;
-	line-height: 1.2;
-	opacity: 0.6;
-	text-wrap: balance;
 }
 
 /* --- Game screen --------------------------------------------------------- */
@@ -524,6 +486,15 @@ button:disabled {
 	margin: 0;
 	font-size: clamp(1.6rem, 7vw, 2.1rem);
 	font-weight: 700;
+}
+
+/* The board is still being found, so there is nothing behind this to look at. */
+#finding-panel .card {
+	max-width: 20rem;
+}
+
+#finding-detail {
+	margin: 0;
 }
 
 #result-detail {
